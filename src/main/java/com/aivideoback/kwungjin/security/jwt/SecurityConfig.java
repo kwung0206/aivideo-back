@@ -38,14 +38,21 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // 인가 규칙
                 .authorizeHttpRequests(auth -> auth
-                        // 🔥 프리플라이트(OPTIONS)는 모두 허용
+                        // 프리플라이트(OPTIONS)는 모두 허용
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        // 🔥 회원가입/로그인/이메일 인증 등 인증 전 Auth API 전부 허용
-                        .requestMatchers("/api/auth/**").permitAll()
-                        // 그 외는 인증 필요
+
+                        // 회원가입/로그인/중복검사만 인증 없이 허용
+                        .requestMatchers(
+                                "/api/auth/register",
+                                "/api/auth/login",
+                                "/api/auth/check-userid",
+                                "/api/auth/check-nickname",
+                                "/api/auth/check-email"
+                        ).permitAll()
+
+                        // 나머지는 전부 인증 필요 (닉네임 변경, 비번 변경, /me 등)
                         .anyRequest().authenticated()
                 )
-                // JWT 필터 추가
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
