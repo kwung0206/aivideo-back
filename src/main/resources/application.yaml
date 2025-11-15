@@ -12,10 +12,11 @@ spring:
     password: 1234
 
   jpa:
-    hibernate:
-      ddl-auto: none
-    show-sql: true
-    open-in-view: false
+    database-platform: org.hibernate.community.dialect.OracleLegacyDialect
+    properties:
+      hibernate:
+        dialect: org.hibernate.community.dialect.OracleLegacyDialect
+
 jwt:
   secret: "change-this-secret-to-at-least-32chars-long-123456"
   expiration-ms: 86400000

@@ -21,6 +21,9 @@ public class VideoResponse {
     private String contentType;
     private Long fileSize;
 
+    // 스트리밍용 실제 데이터
+    private byte[] fileData;
+
     private String tag1;
     private String tag2;
     private String tag3;
@@ -44,6 +47,7 @@ public class VideoResponse {
                 .fileName(v.getFileName())
                 .contentType(v.getContentType())
                 .fileSize(v.getFileSize())
+                .fileData(v.getFileData())
                 .tag1(v.getTag1())
                 .tag2(v.getTag2())
                 .tag3(v.getTag3())

@@ -41,6 +41,13 @@ dependencies {
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+	// Google Cloud Video Intelligence API
+	implementation 'com.google.cloud:google-cloud-video-intelligence:2.39.0'
+	// Google Cloud Storage (GCS에 업로드/읽기용)
+	implementation 'com.google.cloud:google-cloud-storage:2.40.0'
+
+	implementation 'org.hibernate.orm:hibernate-community-dialects'
 }
 
 tasks.named('test') {

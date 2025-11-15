@@ -44,6 +44,7 @@ public class Video {
     private Long fileSize;                 // 파일 크기 (바이트)
 
     @Lob
+    @Basic(fetch = FetchType.LAZY)         // 목록 조회 시 BLOB 바로 안 끌어오도록
     @Column(name = "FILE_DATA", nullable = false)
     private byte[] fileData;               // 실제 영상 데이터 (BLOB)
 
@@ -83,15 +84,19 @@ public class Video {
     @Column(name = "UPDATED_AT")
     private LocalDateTime updatedAt;
 
+    @Column(name = "REVIEW_STATUS", nullable = false, length = 1)
+    private String reviewStatus;           // 'P' = 심사 대기, 'A' = 승인, 'H' = 보류 등
+
     @PrePersist
     public void prePersist() {
         LocalDateTime now = LocalDateTime.now();
-        if (createdAt == null) createdAt = now;
-        if (uploadDate == null) uploadDate = now;
-        if (viewCount == null) viewCount = 0L;
-        if (likeCount == null) likeCount = 0L;
+        if (createdAt == null)   createdAt = now;
+        if (uploadDate == null)  uploadDate = now;
+        if (viewCount == null)   viewCount = 0L;
+        if (likeCount == null)   likeCount = 0L;
         if (dislikeCount == null) dislikeCount = 0L;
-        if (isBlocked == null) isBlocked = "N";
+        if (isBlocked == null)   isBlocked = "N";
+        if (reviewStatus == null) reviewStatus = "P";  // 기본: 심사 대기
     }
 
     @PreUpdate

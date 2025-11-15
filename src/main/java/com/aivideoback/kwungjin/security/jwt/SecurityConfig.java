@@ -38,6 +38,11 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // 인가 규칙
                 .authorizeHttpRequests(auth -> auth
+                        // 스트리밍 전체 허용
+                        .requestMatchers(HttpMethod.GET, "/api/videos/*/stream").permitAll()
+                        // ✅ 공개 갤러리 목록도 허용
+                        .requestMatchers(HttpMethod.GET, "/api/videos/public").permitAll()
+
                         // 프리플라이트(OPTIONS)는 모두 허용
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
