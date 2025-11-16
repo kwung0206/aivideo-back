@@ -68,4 +68,6 @@ public interface VideoRepository extends JpaRepository<Video, Long> {
             String isBlocked,
             String reviewStatus
     );
+
+    List<Video> findByIsBlocked(String isBlocked);
 }

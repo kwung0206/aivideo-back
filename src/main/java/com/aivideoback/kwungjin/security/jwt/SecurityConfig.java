@@ -1,6 +1,6 @@
+// src/main/java/com/aivideoback/kwungjin/security/jwt/SecurityConfig.java
 package com.aivideoback.kwungjin.security.jwt;
 
-import com.aivideoback.kwungjin.security.jwt.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,23 +30,20 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                // CSRF 비활성화
                 .csrf(csrf -> csrf.disable())
-                // CORS 설정 적용
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                // 세션 사용 안 함 (JWT)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                // 인가 규칙
                 .authorizeHttpRequests(auth -> auth
-                        // 스트리밍 전체 허용
+                        // ✅ 1) 관리자 로그인은 항상 공개 (경로 정확히 /api/admin/login)
+                        .requestMatchers("/api/admin/login").permitAll()
+
+                        // ✅ 2) 그 외 관리자 API는 ADMIN 권한 필요
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+
+                        // ✅ 3) 일반 공개 API
                         .requestMatchers(HttpMethod.GET, "/api/videos/*/stream").permitAll()
-                        // ✅ 공개 갤러리 목록도 허용
                         .requestMatchers(HttpMethod.GET, "/api/videos/public").permitAll()
-
-                        // 프리플라이트(OPTIONS)는 모두 허용
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-
-                        // 회원가입/로그인/중복검사만 인증 없이 허용
                         .requestMatchers(
                                 "/api/auth/register",
                                 "/api/auth/login",
@@ -55,21 +52,20 @@ public class SecurityConfig {
                                 "/api/auth/check-email"
                         ).permitAll()
 
-                        // 나머지는 전부 인증 필요 (닉네임 변경, 비번 변경, /me 등)
+                        // ✅ 4) 나머지는 인증 필요
                         .anyRequest().authenticated()
                 )
+                // ✅ 관리자 로그인 등 일부 URL은 필터에서 건드리지 않도록, 필터 내부에서 분기
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
 
-    // 🔐 비밀번호 암호화용 PasswordEncoder 빈
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
-    // AuthenticationManager 주입
     @Bean
     public AuthenticationManager authenticationManager(
             AuthenticationConfiguration configuration
@@ -77,19 +73,14 @@ public class SecurityConfig {
         return configuration.getAuthenticationManager();
     }
 
-    // 🌐 CORS 설정
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-
-        // 실제 프론트 주소에 맞춰서 사용
         config.setAllowedOrigins(List.of(
-                "http://localhost:5173",   // Vite 기본 포트
-                "http://localhost:3000"    // 필요하면 같이 두기
+                "http://localhost:5173",
+                "http://localhost:3000"
         ));
-        config.setAllowedMethods(List.of(
-                "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"
-        ));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         config.setAllowedHeaders(List.of(
                 "Authorization",
                 "Content-Type",
@@ -97,8 +88,8 @@ public class SecurityConfig {
                 "Accept",
                 "Origin"
         ));
-        config.setAllowCredentials(true);   // 쿠키/인증 헤더 허용
-        config.setMaxAge(3600L);            // 프리플라이트 캐시 시간(초)
+        config.setAllowCredentials(true);
+        config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
