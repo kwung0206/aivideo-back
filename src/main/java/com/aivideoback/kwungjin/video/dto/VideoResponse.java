@@ -21,8 +21,8 @@ public class VideoResponse {
     private String contentType;
     private Long fileSize;
 
-    // 스트리밍용 실제 데이터
-    private byte[] fileData;
+    // 🔥 실제 파일 경로 (백엔드 내부용, 프론트엔드에는 필요 없으면 안 내려도 됨)
+    private String filePath;
 
     private String tag1;
     private String tag2;
@@ -47,7 +47,7 @@ public class VideoResponse {
                 .fileName(v.getFileName())
                 .contentType(v.getContentType())
                 .fileSize(v.getFileSize())
-                .fileData(v.getFileData())
+                .filePath(v.getFilePath())
                 .tag1(v.getTag1())
                 .tag2(v.getTag2())
                 .tag3(v.getTag3())

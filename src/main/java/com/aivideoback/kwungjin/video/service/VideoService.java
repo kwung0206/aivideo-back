@@ -15,6 +15,7 @@ import com.aivideoback.kwungjin.video.repository.VideoReactionRepository;
 import com.aivideoback.kwungjin.video.repository.VideoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,16 +24,16 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-
 import com.aivideoback.kwungjin.video.dto.HomeSummaryResponse;
 import com.aivideoback.kwungjin.video.dto.HomeSummaryResponse.SimpleVideoDto;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.*;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -44,10 +45,14 @@ public class VideoService {
     private final VideoRepository videoRepository;
     private final UserRepository userRepository;
     private final VideoReactionRepository videoReactionRepository;
-    // ✅ 자동 심사용 서비스
     private final VideoReviewService videoReviewService;
     private final VideoFeatureRepository videoFeatureRepository;
 
+    // 🔥 영상 파일이 저장될 기본 디렉터리 (컨테이너 기준 경로)
+    @Value("${app.video.storage-dir:/data/videos}")
+    private String videoStorageDir;
+
+    @Transactional
     public VideoResponse uploadVideo(
             String userId,
             String title,
@@ -56,21 +61,56 @@ public class VideoService {
             MultipartFile file
     ) throws IOException {
 
+        // 1) 사용자 조회
         User user = userRepository.findByUserId(userId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 사용자입니다: " + userId));
 
         Long userNo = user.getUserNo();
+
+        // 2) 파일 이름/경로 먼저 준비
+        String originalName = file.getOriginalFilename();
+
+        String ext = "";
+        if (originalName != null && originalName.contains(".")) {
+            ext = originalName.substring(originalName.lastIndexOf("."));  // ".mp4" 같은 확장자
+        }
+
+        // 저장용 파일명 (UUID 사용)
+        String storedName = UUID.randomUUID().toString() + ext;
+
+        // 저장 디렉터리: {storageDir}/{userNo}/
+        Path userDir = Paths.get(videoStorageDir, String.valueOf(userNo));
+        Files.createDirectories(userDir);
+
+        // 실제 파일 경로
+        Path targetPath = userDir.resolve(storedName);
+
+        // 3) MultipartFile → 물리 파일로 먼저 복사
+        try (InputStream in = file.getInputStream()) {
+            Files.copy(in, targetPath, StandardCopyOption.REPLACE_EXISTING);
+        }
+
+        // 4) 이제 Video 엔티티를 "완전히" 채워서 한 번만 save
+        LocalDateTime now = LocalDateTime.now();
 
         Video video = new Video();
         video.setUserNo(userNo);
         video.setTitle(title);
         video.setDescription(description);
 
-        video.setFileName(file.getOriginalFilename());
+        // ❗ FILE_NAME 에 무엇을 넣을지는 선택
+        // - 실제 저장된 파일명: storedName
+        // - 사용자가 업로드한 원본 이름: originalName
+        // 여기서는 storedName을 넣었지만, 원한다면 originalName으로 바꿔도 됨
+        video.setFileName(storedName);
+
         video.setContentType(file.getContentType());
         video.setFileSize(file.getSize());
-        video.setFileData(file.getBytes());
 
+        // ✅ FILE_PATH: NOT NULL 이므로 반드시 여기서 세팅
+        video.setFilePath(targetPath.toString());
+
+        // 태그
         if (tags != null && !tags.isEmpty()) {
             if (tags.size() > 0) video.setTag1(tags.get(0));
             if (tags.size() > 1) video.setTag2(tags.get(1));
@@ -79,27 +119,41 @@ public class VideoService {
             if (tags.size() > 4) video.setTag5(tags.get(4));
         }
 
-        LocalDateTime now = LocalDateTime.now();
         video.setUploadDate(now);
         video.setCreatedAt(now);
         video.setViewCount(0L);
         video.setLikeCount(0L);
         video.setDislikeCount(0L);
         video.setIsBlocked("N");
-        video.setReviewStatus("P"); // 기본: 심사 대기
+        video.setReviewStatus("P"); // 심사 대기
 
+        // 5) INSERT 한 번만
         Video saved = videoRepository.save(video);
 
-        // ✅ 업로드 직후, Google Video Intelligence API로 비동기 심사 요청
-        try {
-            videoReviewService.reviewVideoAsync(saved.getVideoNo(), saved.getFileData());
-        } catch (Exception e) {
-            log.warn("영상 자동 심사 스케줄링 실패 videoNo={}", saved.getVideoNo(), e);
+// 6) 업로드 직후, 비동기 심사 스케줄링 (videoNo만 넘김)
+//    👉 트랜잭션 커밋이 끝난 다음에 돌도록 등록
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        videoReviewService.reviewVideoAsync(saved.getVideoNo());
+                    } catch (Exception e) {
+                        log.warn("영상 자동 심사 스케줄링 실패 videoNo={}", saved.getVideoNo(), e);
+                    }
+                }
+            });
+        } else {
+            // 혹시 트랜잭션 밖에서 호출된 경우를 대비한 Fallback
+            try {
+                videoReviewService.reviewVideoAsync(saved.getVideoNo());
+            } catch (Exception e) {
+                log.warn("영상 자동 심사 스케줄링 실패 videoNo={}", saved.getVideoNo(), e);
+            }
         }
 
         return VideoResponse.from(saved);
     }
-
     // 🔹 userId 기준으로 내 영상 목록
     @Transactional(readOnly = true)
     public List<VideoSummaryDto> getMyVideosByUserId(String userId) {
@@ -112,7 +166,7 @@ public class VideoService {
                 .toList();
     }
 
-    // 🔹 스트리밍용 영상 단건 조회
+    // 🔹 스트리밍용 영상 단건 조회 (메타데이터만)
     @Transactional(readOnly = true)
     public VideoResponse getVideoForStream(Long videoNo) {
         Video video = videoRepository.findById(videoNo)
@@ -120,7 +174,7 @@ public class VideoService {
         return VideoResponse.from(video);
     }
 
-    // 🔹 내 영상 제목 수정 (태그는 현재 프론트에서 막아둔 상태)
+    // 🔹 내 영상 제목 수정
     public VideoSummaryDto updateMyVideo(String userId, Long videoNo, VideoUpdateRequest request) {
         User user = userRepository.findByUserId(userId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 사용자입니다: " + userId));
@@ -135,21 +189,22 @@ public class VideoService {
         if (request.getTitle() != null && !request.getTitle().trim().isEmpty()) {
             video.setTitle(request.getTitle().trim());
         }
+        if (request.getDescription() != null) {
+            video.setDescription(request.getDescription());
+        }
 
         Video saved = videoRepository.save(video);
         return VideoSummaryDto.from(saved);
     }
 
-    // ✅ 공개 갤러리용: 승인(A) & 차단 안 된 영상만
-    //   + (옵션) 키워드 + (옵션) 태그 필터
-    //   + (옵션) 로그인한 사용자의 myReaction 정보까지 포함
+    // ✅ 공개 갤러리용
     @Transactional(readOnly = true)
     public Page<VideoSummaryDto> getPublicVideos(
             String keyword,
             List<String> tags,
             int page,
             int size,
-            String userId   // 🔹 로그인 유저 (없으면 null)
+            String userId
     ) {
         Pageable pageable = PageRequest.of(
                 page,
@@ -176,12 +231,12 @@ public class VideoService {
                 pageable
         );
 
-        // 🔸 비로그인: 좋아요는 숫자만, myReaction 은 항상 null
+        // 비로그인
         if (userId == null || userId.isBlank()) {
             return result.map(VideoSummaryDto::from);
         }
 
-        // 🔸 로그인: 이 유저가 각 영상에 어떤 반응을 했는지 같이 내려주기
+        // 로그인: myReaction 포함
         User user = userRepository.findByUserId(userId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 사용자입니다: " + userId));
 
@@ -242,11 +297,11 @@ public class VideoService {
         String myReactionStr;
 
         if (current != null && current.getReactionType() == target) {
-            // 같은 버튼 한 번 더 누름 → 취소 (행 삭제)
+            // 같은 버튼 한 번 더 → 취소
             videoReactionRepository.delete(current);
             myReactionStr = null;
         } else {
-            // 없거나, 반대 반응 → target 으로 세팅
+            // 없거나 반대 반응 → target 으로 세팅
             if (current == null) {
                 current = VideoReaction.builder()
                         .videoNo(videoNo)
@@ -255,14 +310,12 @@ public class VideoService {
             }
             current.setReactionType(target);
             videoReactionRepository.save(current);
-            myReactionStr = target.name();   // "LIKE" or "DISLIKE"
+            myReactionStr = target.name();
         }
 
-        // 최신 좋아요/싫어요 카운트 계산
         long likeCount = videoReactionRepository.countByVideoNoAndReactionType(videoNo, ReactionType.LIKE);
         long dislikeCount = videoReactionRepository.countByVideoNoAndReactionType(videoNo, ReactionType.DISLIKE);
 
-        // VIDEO_TABLE에도 반영 (목록 조회에서 사용)
         video.setLikeCount(likeCount);
         video.setDislikeCount(dislikeCount);
 
@@ -272,33 +325,35 @@ public class VideoService {
                 .myReaction(myReactionStr)
                 .build();
     }
+
     @Transactional
     public void deleteMyVideo(String userId, Long videoNo) {
 
-        // 1) 로그인 유저 조회 (userId -> User / userNo)
         User user = userRepository.findByUserId(userId)
                 .orElseThrow(() -> new IllegalArgumentException("회원 정보를 찾을 수 없습니다."));
 
-        // 2) 영상 조회
         Video video = videoRepository.findById(videoNo)
                 .orElseThrow(() -> new IllegalArgumentException("영상 정보를 찾을 수 없습니다."));
 
-        // 3) 본인이 올린 영상인지 확인 (Video 안에 userNo 필드가 있다고 가정)
         if (!video.getUserNo().equals(user.getUserNo())) {
             throw new AccessDeniedException("본인이 업로드한 영상만 삭제할 수 있습니다.");
         }
 
-        // 4) 연관 데이터(자식) 먼저 삭제
-        //    FK_VIDEO_FEATURE_VIDEO 때문에 여기서 Feature 먼저 지워줘야 ORA-02292 안 남
-        videoFeatureRepository.deleteByVideoNo(videoNo);   // VIDEO_FEATURE_TABLE
+        // 🔥 실제 영상 파일 삭제
+        String path = video.getFilePath();
+        if (path != null && !path.isBlank()) {
+            try {
+                Files.deleteIfExists(Paths.get(path));
+            } catch (IOException e) {
+                log.warn("영상 파일 삭제 실패 path={} videoNo={}", path, videoNo, e);
+            }
+        }
 
-        //    좋아요/싫어요 반응도 함께 정리
-        videoReactionRepository.deleteByVideoNo(videoNo);  // VIDEO_REACTION_TABLE
+        // 연관 데이터 삭제
+        videoFeatureRepository.deleteByVideoNo(videoNo);
+        videoReactionRepository.deleteByVideoNo(videoNo);
 
-        // TODO: 만약 다른 테이블(예: 조회 로그, 코멘트 등)이 video_no FK를 갖고 있으면
-        //       이 자리에서 같이 deleteByVideoNo(...) 호출해 주면 됨.
-
-        // 5) 부모(영상) 삭제
+        // 부모 삭제
         videoRepository.delete(video);
     }
 
@@ -329,7 +384,6 @@ public class VideoService {
     private SimpleVideoDto toSimpleDto(Video v) {
         if (v == null) return null;
 
-        // TAG1 ~ TAG5 → List<String> 으로 변환
         List<String> tags = new ArrayList<>();
         if (v.getTag1() != null && !v.getTag1().isBlank()) tags.add(v.getTag1());
         if (v.getTag2() != null && !v.getTag2().isBlank()) tags.add(v.getTag2());
@@ -341,24 +395,17 @@ public class VideoService {
                 .videoNo(v.getVideoNo())
                 .title(v.getTitle())
                 .description(v.getDescription())
-
-                // 아직 엔티티에 썸네일/URL 컬럼이 없으니까 일단 null 로 내려보내고
-                // 프론트에서 videoNo 기준으로 URL 조합해서 쓸 수 있게 할 거야
                 .thumbnailUrl(null)
                 .videoUrl(null)
-
                 .likeCount(v.getLikeCount())
                 .dislikeCount(v.getDislikeCount())
                 .viewCount(v.getViewCount())
-
-                // Video 에서 바로 닉네임을 알 수 없으니 일단 null
-                // 나중에 UserRepository 붙여서 userNo → nickname 가져오면 됨
                 .uploaderNickname(null)
-
                 .createdAt(v.getCreatedAt())
                 .tags(tags)
                 .build();
     }
+
     public long increaseViewCount(Long videoNo) {
         Video video = videoRepository.findById(videoNo)
                 .orElseThrow(() -> new IllegalArgumentException("영상이 존재하지 않습니다: " + videoNo));
@@ -367,7 +414,7 @@ public class VideoService {
         if (current == null) current = 0L;
 
         long updated = current + 1;
-        video.setViewCount(updated);  // @Transactional + JPA 변경감지로 자동 flush
+        video.setViewCount(updated);
 
         return updated;
     }

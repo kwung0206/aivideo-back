@@ -12,6 +12,9 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -20,19 +23,32 @@ import java.util.concurrent.TimeUnit;
 public class VideoReviewService {
 
     private final VideoRepository videoRepository;
-    private final VideoFeatureService videoFeatureService;   // ✅ 새로 주입
+    private final VideoFeatureService videoFeatureService;
 
     /**
      * 업로드 직후 비동기로 호출되는 자동 심사 메서드.
-     * - Google Video Intelligence로 유해성 판별
-     * - 결과에 따라 REVIEW_STATUS / IS_BLOCKED 갱신
-     * - 승인된 영상이면 GPT 기반 특징 추출까지 이어서 실행
+     * 파일은 DB가 아니라 filePath 에 저장되어 있으므로
+     * 여기서 직접 읽어온다.
      */
     @Async
     @Transactional
-    public void reviewVideoAsync(Long videoNo, byte[] fileData) {
+    public void reviewVideoAsync(Long videoNo) {
 
         log.info("영상 자동 심사 시작 videoNo={}", videoNo);
+
+        Video video = videoRepository.findById(videoNo)
+                .orElseThrow(() -> new IllegalArgumentException("영상이 존재하지 않습니다: " + videoNo));
+
+        byte[] fileData;
+        try {
+            Path path = Paths.get(video.getFilePath());
+            fileData = Files.readAllBytes(path);
+        } catch (Exception e) {
+            log.error("영상 파일 읽기 실패, 심사 불가 videoNo={}", videoNo, e);
+            video.setReviewStatus("H");
+            video.setIsBlocked("Y");
+            return;
+        }
 
         boolean harmful = false;
 
@@ -62,23 +78,18 @@ public class VideoReviewService {
 
         } catch (Exception e) {
             log.error("영상 자동 심사 중 예외 발생 videoNo={}", videoNo, e);
-            harmful = true; // 실패 시 보수적으로 막기
+            harmful = true;
         }
 
-        // DB 상태 갱신
-        Video video = videoRepository.findById(videoNo)
-                .orElseThrow(() -> new IllegalArgumentException("영상이 존재하지 않습니다: " + videoNo));
-
         if (harmful) {
-            video.setReviewStatus("H");   // 보류
-            video.setIsBlocked("Y");      // 차단
+            video.setReviewStatus("H");
+            video.setIsBlocked("Y");
             log.info("영상 자동 심사 결과: 보류(H) videoNo={}", videoNo);
         } else {
-            video.setReviewStatus("A");   // 승인
+            video.setReviewStatus("A");
             video.setIsBlocked("N");
             log.info("영상 자동 심사 결과: 승인(A) videoNo={}", videoNo);
 
-            // ✅ 승인된 영상에 대해 GPT 기반 특징 추출 비동기 실행
             try {
                 videoFeatureService.extractAndSaveFeatures(videoNo);
             } catch (Exception e) {

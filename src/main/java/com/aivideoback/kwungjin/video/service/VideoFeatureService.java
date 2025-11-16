@@ -17,9 +17,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -32,10 +32,9 @@ public class VideoFeatureService {
     private final ObjectMapper objectMapper;
 
     /**
-     * 검수가 끝나고 승인된(A) 영상에 대해
+     * 승인된(A) 영상에 대해
+     * 파일 시스템에서 영상 파일을 읽어와서
      * 프레임 추출 → 태그 생성 → VIDEO_FEATURE_TABLE 저장.
-     *
-     * 비동기로 돌려서 업로드/검수 흐름과 분리.
      */
     @Async
     @Transactional
@@ -45,17 +44,22 @@ public class VideoFeatureService {
         Video video = videoRepository.findById(videoNo)
                 .orElseThrow(() -> new IllegalArgumentException("영상이 존재하지 않습니다: " + videoNo));
 
-
-        byte[] fileData = video.getFileData();
-        if (fileData == null || fileData.length == 0) {
-            log.warn("영상 데이터가 비어있음. 특징 추출 불가 videoNo={}", videoNo);
+        byte[] fileData;
+        try {
+            Path path = Paths.get(video.getFilePath());
+            if (!Files.exists(path)) {
+                log.warn("영상 파일이 존재하지 않음. 특징 추출 불가 path={} videoNo={}", path, videoNo);
+                return;
+            }
+            fileData = Files.readAllBytes(path);
+        } catch (IOException e) {
+            log.error("영상 파일 읽기 실패. 특징 추출 불가 videoNo={}", videoNo, e);
             return;
         }
 
         // 1) ffmpeg로 대표 프레임 여러 장 추출
         List<byte[]> frameBytesList = new ArrayList<>();
         try {
-            // VideoFrameExtractor 는 List<File> 을 리턴하고, IOException / InterruptedException 을 던짐
             List<File> frameFiles = VideoFrameExtractor.extractThumbnailFrames(fileData);
 
             if (frameFiles == null || frameFiles.isEmpty()) {
@@ -63,7 +67,6 @@ public class VideoFeatureService {
                 return;
             }
 
-            // File → byte[] 로 변환 (OpenAI로 보내기 위함)
             for (File f : frameFiles) {
                 try {
                     frameBytesList.add(Files.readAllBytes(f.toPath()));
@@ -77,7 +80,6 @@ public class VideoFeatureService {
             return;
         } catch (InterruptedException e) {
             log.error("ffmpeg 프레임 추출 중 인터럽트 발생 videoNo={}", videoNo, e);
-            // 인터럽트 상태 복구
             Thread.currentThread().interrupt();
             return;
         }
@@ -98,13 +100,12 @@ public class VideoFeatureService {
         try {
             String tagsJson = objectMapper.writeValueAsString(Map.of("tags", tags));
 
-            // 기존 특징 기록이 있다면 삭제 후 하나만 유지하는 정책
             videoFeatureRepository.deleteByVideoNo(videoNo);
 
             VideoFeature feature = VideoFeature.builder()
                     .videoNo(videoNo)
                     .source("GPT_IMAGE")
-                    .frameTime(null)     // 현재는 '영상 전체' 요약
+                    .frameTime(null)
                     .tagsJson(tagsJson)
                     .build();
 

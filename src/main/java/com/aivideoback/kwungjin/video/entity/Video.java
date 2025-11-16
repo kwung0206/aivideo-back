@@ -43,10 +43,9 @@ public class Video {
     @Column(name = "FILE_SIZE", nullable = false)
     private Long fileSize;                 // 파일 크기 (바이트)
 
-    @Lob
-    @Basic(fetch = FetchType.LAZY)         // 목록 조회 시 BLOB 바로 안 끌어오도록
-    @Column(name = "FILE_DATA", nullable = false)
-    private byte[] fileData;               // 실제 영상 데이터 (BLOB)
+    // 🔥 실제 서버 파일 경로 (예: /data/videos/{userNo}/{videoNo}.mp4)
+    @Column(name = "FILE_PATH", nullable = false, length = 1000)
+    private String filePath;
 
     @Column(name = "TAG1", length = 100)
     private String tag1;
