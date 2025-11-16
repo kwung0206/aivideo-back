@@ -23,6 +23,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtTokenProvider jwtTokenProvider;
     private final CustomUserDetailsService userDetailsService;
 
+    // JWT 검사에서 완전히 제외할 경로들
+    private static final String[] JWT_WHITELIST = {
+            "/api/auth/login",
+            "/api/auth/register",
+            "/api/auth/check-userid",
+            "/api/auth/check-nickname",
+            "/api/auth/check-email",
+            "/api/admin/login"
+    };
+
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,
@@ -32,12 +42,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String path = request.getRequestURI();
 
-        // ✅ 로그인/회원가입/관리자 로그인은 JWT 검사 스킵
-        if (path.startsWith("/api/user/login")
-                || path.startsWith("/api/user/register")
-                || path.startsWith("/api/admin/login")) {
-            filterChain.doFilter(request, response);
-            return;
+        // 🔹 화이트리스트 경로는 JWT 완전 스킵
+        for (String open : JWT_WHITELIST) {
+            if (path.startsWith(open)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
         }
 
         String header = request.getHeader("Authorization");
@@ -61,7 +71,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext().setAuthentication(auth);
 
                 } catch (UsernameNotFoundException ex) {
-                    // logger.debug("JWT user not found: {}", username);
+                    // 유저 없으면 그냥 인증 안 된 상태로 진행
                 }
             }
         }
