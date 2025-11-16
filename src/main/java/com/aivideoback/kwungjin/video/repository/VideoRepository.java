@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface VideoRepository extends JpaRepository<Video, Long> {
@@ -39,5 +40,32 @@ public interface VideoRepository extends JpaRepository<Video, Long> {
             @Param("tags") List<String> tags,
             @Param("tagsEmpty") boolean tagsEmpty,
             Pageable pageable
+    );
+
+    // 🔹 Finding 용: 차단 X + 승인(A) 인 최신 200개
+    List<Video> findTop200ByIsBlockedAndReviewStatusOrderByCreatedAtDesc(
+            String isBlocked,
+            String reviewStatus
+    );
+
+    // 🔹 홈 요약용: 공개(차단 X + 승인 A) 영상 개수
+    long countByIsBlockedAndReviewStatus(String isBlocked, String reviewStatus);
+
+    // 🔹 공개된 영상 중 좋아요 1위
+    Optional<Video> findFirstByIsBlockedAndReviewStatusOrderByLikeCountDesc(
+            String isBlocked,
+            String reviewStatus
+    );
+
+    // 🔹 공개된 영상 중 조회수 1위
+    Optional<Video> findFirstByIsBlockedAndReviewStatusOrderByViewCountDesc(
+            String isBlocked,
+            String reviewStatus
+    );
+
+    // 🔹 공개된 영상 중 싫어요 1위
+    Optional<Video> findFirstByIsBlockedAndReviewStatusOrderByDislikeCountDesc(
+            String isBlocked,
+            String reviewStatus
     );
 }

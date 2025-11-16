@@ -16,13 +16,16 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.aivideoback.kwungjin.video.dto.HomeSummaryResponse;
 import com.aivideoback.kwungjin.video.dto.VideoReactionResponse;
+
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/videos")
@@ -122,5 +125,17 @@ public class VideoController {
     ) {
         VideoReactionResponse resp = videoService.toggleReaction(userId, videoNo, action);
         return ResponseEntity.ok(resp);
+    }
+
+    @GetMapping("/home-summary")
+    public ResponseEntity<HomeSummaryResponse> getHomeSummary() {
+        return ResponseEntity.ok(videoService.getHomeSummary());
+    }
+
+    // 🔹 조회수 증가 (모달에서 영상 시청 시 호출)
+    @PostMapping("/{videoNo}/view")
+    public ResponseEntity<Map<String, Long>> increaseView(@PathVariable Long videoNo) {
+        long viewCount = videoService.increaseViewCount(videoNo);
+        return ResponseEntity.ok(Map.of("viewCount", viewCount));
     }
 }

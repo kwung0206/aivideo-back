@@ -10,6 +10,7 @@ import com.aivideoback.kwungjin.video.dto.VideoUpdateRequest;
 import com.aivideoback.kwungjin.video.entity.Video;
 import com.aivideoback.kwungjin.video.entity.VideoReaction;
 import com.aivideoback.kwungjin.video.entity.VideoReaction.ReactionType;
+import com.aivideoback.kwungjin.video.repository.VideoFeatureRepository;
 import com.aivideoback.kwungjin.video.repository.VideoReactionRepository;
 import com.aivideoback.kwungjin.video.repository.VideoRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,8 +24,12 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
+import com.aivideoback.kwungjin.video.dto.HomeSummaryResponse;
+import com.aivideoback.kwungjin.video.dto.HomeSummaryResponse.SimpleVideoDto;
+
 import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +46,7 @@ public class VideoService {
     private final VideoReactionRepository videoReactionRepository;
     // ✅ 자동 심사용 서비스
     private final VideoReviewService videoReviewService;
+    private final VideoFeatureRepository videoFeatureRepository;
 
     public VideoResponse uploadVideo(
             String userId,
@@ -112,21 +118,6 @@ public class VideoService {
         Video video = videoRepository.findById(videoNo)
                 .orElseThrow(() -> new IllegalArgumentException("영상이 존재하지 않습니다: " + videoNo));
         return VideoResponse.from(video);
-    }
-
-    // 🔹 내 영상 삭제
-    public void deleteMyVideo(String userId, Long videoNo) {
-        User user = userRepository.findByUserId(userId)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 사용자입니다: " + userId));
-
-        Video video = videoRepository.findById(videoNo)
-                .orElseThrow(() -> new IllegalArgumentException("영상이 존재하지 않습니다: " + videoNo));
-
-        if (!video.getUserNo().equals(user.getUserNo())) {
-            throw new AccessDeniedException("본인이 업로드한 영상만 삭제할 수 있습니다.");
-        }
-
-        videoRepository.delete(video);
     }
 
     // 🔹 내 영상 제목 수정 (태그는 현재 프론트에서 막아둔 상태)
@@ -280,5 +271,104 @@ public class VideoService {
                 .dislikeCount(dislikeCount)
                 .myReaction(myReactionStr)
                 .build();
+    }
+    @Transactional
+    public void deleteMyVideo(String userId, Long videoNo) {
+
+        // 1) 로그인 유저 조회 (userId -> User / userNo)
+        User user = userRepository.findByUserId(userId)
+                .orElseThrow(() -> new IllegalArgumentException("회원 정보를 찾을 수 없습니다."));
+
+        // 2) 영상 조회
+        Video video = videoRepository.findById(videoNo)
+                .orElseThrow(() -> new IllegalArgumentException("영상 정보를 찾을 수 없습니다."));
+
+        // 3) 본인이 올린 영상인지 확인 (Video 안에 userNo 필드가 있다고 가정)
+        if (!video.getUserNo().equals(user.getUserNo())) {
+            throw new AccessDeniedException("본인이 업로드한 영상만 삭제할 수 있습니다.");
+        }
+
+        // 4) 연관 데이터(자식) 먼저 삭제
+        //    FK_VIDEO_FEATURE_VIDEO 때문에 여기서 Feature 먼저 지워줘야 ORA-02292 안 남
+        videoFeatureRepository.deleteByVideoNo(videoNo);   // VIDEO_FEATURE_TABLE
+
+        //    좋아요/싫어요 반응도 함께 정리
+        videoReactionRepository.deleteByVideoNo(videoNo);  // VIDEO_REACTION_TABLE
+
+        // TODO: 만약 다른 테이블(예: 조회 로그, 코멘트 등)이 video_no FK를 갖고 있으면
+        //       이 자리에서 같이 deleteByVideoNo(...) 호출해 주면 됨.
+
+        // 5) 부모(영상) 삭제
+        videoRepository.delete(video);
+    }
+
+    @Transactional(readOnly = true)
+    public HomeSummaryResponse getHomeSummary() {
+        long total = videoRepository.countByIsBlockedAndReviewStatus("N", "A");
+
+        Video topLikedEntity = videoRepository
+                .findFirstByIsBlockedAndReviewStatusOrderByLikeCountDesc("N", "A")
+                .orElse(null);
+
+        Video topViewedEntity = videoRepository
+                .findFirstByIsBlockedAndReviewStatusOrderByViewCountDesc("N", "A")
+                .orElse(null);
+
+        Video topDislikedEntity = videoRepository
+                .findFirstByIsBlockedAndReviewStatusOrderByDislikeCountDesc("N", "A")
+                .orElse(null);
+
+        return HomeSummaryResponse.builder()
+                .totalCount(total)
+                .topLiked(toSimpleDto(topLikedEntity))
+                .topViewed(toSimpleDto(topViewedEntity))
+                .topDisliked(toSimpleDto(topDislikedEntity))
+                .build();
+    }
+
+    private SimpleVideoDto toSimpleDto(Video v) {
+        if (v == null) return null;
+
+        // TAG1 ~ TAG5 → List<String> 으로 변환
+        List<String> tags = new ArrayList<>();
+        if (v.getTag1() != null && !v.getTag1().isBlank()) tags.add(v.getTag1());
+        if (v.getTag2() != null && !v.getTag2().isBlank()) tags.add(v.getTag2());
+        if (v.getTag3() != null && !v.getTag3().isBlank()) tags.add(v.getTag3());
+        if (v.getTag4() != null && !v.getTag4().isBlank()) tags.add(v.getTag4());
+        if (v.getTag5() != null && !v.getTag5().isBlank()) tags.add(v.getTag5());
+
+        return SimpleVideoDto.builder()
+                .videoNo(v.getVideoNo())
+                .title(v.getTitle())
+                .description(v.getDescription())
+
+                // 아직 엔티티에 썸네일/URL 컬럼이 없으니까 일단 null 로 내려보내고
+                // 프론트에서 videoNo 기준으로 URL 조합해서 쓸 수 있게 할 거야
+                .thumbnailUrl(null)
+                .videoUrl(null)
+
+                .likeCount(v.getLikeCount())
+                .dislikeCount(v.getDislikeCount())
+                .viewCount(v.getViewCount())
+
+                // Video 에서 바로 닉네임을 알 수 없으니 일단 null
+                // 나중에 UserRepository 붙여서 userNo → nickname 가져오면 됨
+                .uploaderNickname(null)
+
+                .createdAt(v.getCreatedAt())
+                .tags(tags)
+                .build();
+    }
+    public long increaseViewCount(Long videoNo) {
+        Video video = videoRepository.findById(videoNo)
+                .orElseThrow(() -> new IllegalArgumentException("영상이 존재하지 않습니다: " + videoNo));
+
+        Long current = video.getViewCount();
+        if (current == null) current = 0L;
+
+        long updated = current + 1;
+        video.setViewCount(updated);  // @Transactional + JPA 변경감지로 자동 flush
+
+        return updated;
     }
 }
