@@ -1,27 +1,47 @@
 server:
-  port: 9999
+  # 기본 포트는 11002 (nginx가 ac-back:11002로 프록시 하도록 맞춰둔 상태)
+  port: ${SERVER_PORT:11002}
 
 spring:
   application:
-    name: kwungjin
+    name: aicollector-back
 
   datasource:
     driver-class-name: oracle.jdbc.OracleDriver
-    url: jdbc:oracle:thin:@localhost:1521:xe
-    username: aivideo
-    password: 1234
+    # 환경변수로 덮어쓸 수 있게 하고, 기본값은 10.10.10.3:1521:xe
+    url: ${SPRING_DATASOURCE_URL:jdbc:oracle:thin:@localhost:xe}
+    username: ${SPRING_DATASOURCE_USERNAME:aivideo}
+    password: ${SPRING_DATASOURCE_PASSWORD:1234}
 
   jpa:
     database-platform: org.hibernate.community.dialect.OracleLegacyDialect
+    hibernate:
+      ddl-auto: none
     properties:
       hibernate:
         dialect: org.hibernate.community.dialect.OracleLegacyDialect
+        format_sql: true
+        show_sql: false
+
+  # 메일 서버 설정 (docker-mailserver: mail 컨테이너)
+  mail:
+    host: ${SPRING_MAIL_HOST:mail}
+    port: ${SPRING_MAIL_PORT:587}
+    username: ${SPRING_MAIL_USERNAME:no-reply@aicollector.co.kr}
+    password: ${SPRING_MAIL_PASSWORD:change-me}
+    properties:
+      mail:
+        smtp:
+          auth: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH:true}
+          starttls:
+            enable: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE:true}
 
 jwt:
-  secret: "change-this-secret-to-at-least-32chars-long-123456"
-  expiration-ms: 86400000
+  # 환경변수로 덮어쓸 수 있게
+  secret: ${JWT_SECRET:change-this-secret-to-at-least-32chars-long-123456}
+  expiration-ms: ${JWT_EXPIRATION_MS:86400000}
 
 openai:
-  api-key: ${OPENAI_API_KEY}         # 환경변수 OPENAI_API_KEY 로 주입
+  api-key: ${OPENAI_API_KEY:}
   base-url: https://api.openai.com/v1
   vision-model: gpt-4.1-mini
