@@ -16,13 +16,27 @@ public class AdminManageController {
 
     private final AdminManageService adminManageService;
 
+    /** 전체 유저 조회 */
     @GetMapping("/users")
     public List<AdminUserSummaryDto> getUsers() {
         return adminManageService.getAllUsers();
     }
 
+    /** 차단된 영상 목록 조회 */
     @GetMapping("/videos/blocked")
     public List<BlockedVideoDto> getBlockedVideos() {
         return adminManageService.getBlockedVideos();
+    }
+
+    /** 차단 영상 승인(차단 해제) - ⭐ POST 사용 */
+    @PostMapping("/videos/{videoNo}/approve")
+    public void approveVideo(@PathVariable Long videoNo) {
+        adminManageService.approveVideo(videoNo);
+    }
+
+    /** 영상 완전 삭제 */
+    @DeleteMapping("/videos/{videoNo}")
+    public void deleteVideo(@PathVariable Long videoNo) {
+        adminManageService.deleteVideo(videoNo);
     }
 }

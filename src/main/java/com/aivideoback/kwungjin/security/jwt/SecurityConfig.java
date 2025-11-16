@@ -30,20 +30,29 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+                // ✅ JWT 사용이라 CSRF 비활성화
                 .csrf(csrf -> csrf.disable())
+                // ✅ CORS 설정
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                // ✅ 세션 사용하지 않음 (STATELESS)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
                 .authorizeHttpRequests(auth -> auth
-                        // ✅ 1) 관리자 로그인은 항상 공개 (경로 정확히 /api/admin/login)
+                        // ✅ preflight
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
+                        // ✅ 관리자 로그인은 모두 허용
                         .requestMatchers("/api/admin/login").permitAll()
 
-                        // ✅ 2) 그 외 관리자 API는 ADMIN 권한 필요
+                        // ✅ 관리자 API는 ADMIN 권한 필요
+                        // hasRole("ADMIN") → 실제로는 "ROLE_ADMIN" 권한을 찾음
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
 
-                        // ✅ 3) 일반 공개 API
+                        // ✅ 공개 비디오 스트리밍/목록
                         .requestMatchers(HttpMethod.GET, "/api/videos/*/stream").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/videos/public").permitAll()
-                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
+                        // ✅ 회원가입/로그인 관련 공개 API
                         .requestMatchers(
                                 "/api/auth/register",
                                 "/api/auth/login",
@@ -52,10 +61,11 @@ public class SecurityConfig {
                                 "/api/auth/check-email"
                         ).permitAll()
 
-                        // ✅ 4) 나머지는 인증 필요
+                        // ✅ 그 외 나머지는 인증 필요
                         .anyRequest().authenticated()
                 )
-                // ✅ 관리자 로그인 등 일부 URL은 필터에서 건드리지 않도록, 필터 내부에서 분기
+
+                // ✅ UsernamePasswordAuthenticationFilter 전에 JWT 필터 동작
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -63,6 +73,7 @@ public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
+        // BCrypt (예: $2a$12$...)
         return new BCryptPasswordEncoder();
     }
 
@@ -76,11 +87,14 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
+        // 🔹 프론트 도메인 추가
         config.setAllowedOrigins(List.of(
                 "http://localhost:5173",
                 "http://localhost:3000"
         ));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
+        config.setAllowedMethods(List.of(
+                "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"
+        ));
         config.setAllowedHeaders(List.of(
                 "Authorization",
                 "Content-Type",

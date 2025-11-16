@@ -9,6 +9,7 @@ import com.aivideoback.kwungjin.video.entity.Video;
 import com.aivideoback.kwungjin.video.repository.VideoRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -58,6 +59,25 @@ public class AdminManageService {
                     return toBlockedDto(v, uploader);
                 })
                 .collect(Collectors.toList());
+    }
+
+    /** 차단 해제(승인) */
+    @Transactional
+    public void approveVideo(Long videoNo) {
+        Video video = videoRepository.findById(videoNo)
+                .orElseThrow(() -> new IllegalArgumentException("영상이 존재하지 않습니다. videoNo=" + videoNo));
+
+        // ✅ isBlocked = 'N' 으로 변경
+        video.setIsBlocked("N");
+    }
+
+    /** 영상 삭제 */
+    @Transactional
+    public void deleteVideo(Long videoNo) {
+        if (!videoRepository.existsById(videoNo)) {
+            throw new IllegalArgumentException("영상이 존재하지 않습니다. videoNo=" + videoNo);
+        }
+        videoRepository.deleteById(videoNo);
     }
 
     /** User → AdminUserSummaryDto 변환 */
