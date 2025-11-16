@@ -48,9 +48,10 @@ public class SecurityConfig {
                         // hasRole("ADMIN") → 실제로는 "ROLE_ADMIN" 권한을 찾음
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
 
-                        // ✅ 공개 비디오 스트리밍/목록
+                        // ✅ 공개 비디오 스트리밍/목록/홈 요약
                         .requestMatchers(HttpMethod.GET, "/api/videos/*/stream").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/videos/public").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/videos/home-summary").permitAll() // 🔹 추가
 
                         // ✅ 회원가입/로그인 관련 공개 API
                         .requestMatchers(
@@ -73,7 +74,7 @@ public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        // BCrypt (예: $2a$12$...)
+        // BCrypt (예: $2a$12$... )
         return new BCryptPasswordEncoder();
     }
 
@@ -87,10 +88,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        // 🔹 프론트 도메인 추가
+        // 🔹 프론트 도메인 추가 (개발 + 운영)
         config.setAllowedOrigins(List.of(
                 "http://localhost:5173",
-                "http://localhost:3000"
+                "http://localhost:3000",
+                "https://aicollector.co.kr"   // 🔹 운영 도메인 추가
         ));
         config.setAllowedMethods(List.of(
                 "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"
