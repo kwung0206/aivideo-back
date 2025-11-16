@@ -27,7 +27,7 @@ public class VideoSummaryDto {
     private Long videoNo;
     private String title;
     private String description;
-
+    private String myReaction;
     // 날짜/집계 정보
     private LocalDateTime uploadDate;
     private Long viewCount;

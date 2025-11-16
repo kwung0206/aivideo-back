@@ -16,6 +16,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.aivideoback.kwungjin.video.dto.VideoReactionResponse;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -51,8 +52,11 @@ public class VideoController {
     }
 
     // ✅ 공개 갤러리용: 승인된 영상 페이지네이션 + 태그 필터
+    // VideoController.java
+
     @GetMapping("/public")
     public ResponseEntity<Page<VideoSummaryDto>> getPublicVideos(
+            @AuthenticationPrincipal(expression = "username") String userId, // ✅ 추가
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "36") int size,
             @RequestParam(required = false) String keyword,
@@ -66,9 +70,12 @@ public class VideoController {
                     .toList();
         }
 
-        Page<VideoSummaryDto> result = videoService.getPublicVideos(keyword, tagList, page, size);
+        Page<VideoSummaryDto> result =
+                videoService.getPublicVideos(keyword, tagList, page, size, userId); // ✅ userId 전달
+
         return ResponseEntity.ok(result);
     }
+
 
     // 🎥 영상 스트리밍 (모달에서 재생용)
     @GetMapping("/{videoNo}/stream")
@@ -105,5 +112,15 @@ public class VideoController {
     ) {
         VideoSummaryDto dto = videoService.updateMyVideo(userId, videoNo, request);
         return ResponseEntity.ok(dto);
+    }
+
+    @PatchMapping("/{videoNo}/reaction")
+    public ResponseEntity<VideoReactionResponse> toggleReaction(
+            @AuthenticationPrincipal(expression = "username") String userId,
+            @PathVariable Long videoNo,
+            @RequestParam("action") String action   // LIKE / DISLIKE
+    ) {
+        VideoReactionResponse resp = videoService.toggleReaction(userId, videoNo, action);
+        return ResponseEntity.ok(resp);
     }
 }

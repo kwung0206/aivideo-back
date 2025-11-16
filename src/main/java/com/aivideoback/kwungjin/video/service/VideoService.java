@@ -3,10 +3,14 @@ package com.aivideoback.kwungjin.video.service;
 
 import com.aivideoback.kwungjin.user.entity.User;
 import com.aivideoback.kwungjin.user.repository.UserRepository;
+import com.aivideoback.kwungjin.video.dto.VideoReactionResponse;
 import com.aivideoback.kwungjin.video.dto.VideoResponse;
 import com.aivideoback.kwungjin.video.dto.VideoSummaryDto;
 import com.aivideoback.kwungjin.video.dto.VideoUpdateRequest;
 import com.aivideoback.kwungjin.video.entity.Video;
+import com.aivideoback.kwungjin.video.entity.VideoReaction;
+import com.aivideoback.kwungjin.video.entity.VideoReaction.ReactionType;
+import com.aivideoback.kwungjin.video.repository.VideoReactionRepository;
 import com.aivideoback.kwungjin.video.repository.VideoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,7 +18,6 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -24,6 +27,8 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -33,8 +38,8 @@ public class VideoService {
 
     private final VideoRepository videoRepository;
     private final UserRepository userRepository;
-
-    // ✅ 새로 추가: 자동 심사용 서비스
+    private final VideoReactionRepository videoReactionRepository;
+    // ✅ 자동 심사용 서비스
     private final VideoReviewService videoReviewService;
 
     public VideoResponse uploadVideo(
@@ -146,8 +151,15 @@ public class VideoService {
 
     // ✅ 공개 갤러리용: 승인(A) & 차단 안 된 영상만
     //   + (옵션) 키워드 + (옵션) 태그 필터
+    //   + (옵션) 로그인한 사용자의 myReaction 정보까지 포함
     @Transactional(readOnly = true)
-    public Page<VideoSummaryDto> getPublicVideos(String keyword, List<String> tags, int page, int size) {
+    public Page<VideoSummaryDto> getPublicVideos(
+            String keyword,
+            List<String> tags,
+            int page,
+            int size,
+            String userId   // 🔹 로그인 유저 (없으면 null)
+    ) {
         Pageable pageable = PageRequest.of(
                 page,
                 size,
@@ -173,6 +185,100 @@ public class VideoService {
                 pageable
         );
 
-        return result.map(VideoSummaryDto::from);
+        // 🔸 비로그인: 좋아요는 숫자만, myReaction 은 항상 null
+        if (userId == null || userId.isBlank()) {
+            return result.map(VideoSummaryDto::from);
+        }
+
+        // 🔸 로그인: 이 유저가 각 영상에 어떤 반응을 했는지 같이 내려주기
+        User user = userRepository.findByUserId(userId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 사용자입니다: " + userId));
+
+        Long userNo = user.getUserNo();
+
+        List<Long> videoNos = result.stream()
+                .map(Video::getVideoNo)
+                .toList();
+
+        if (videoNos.isEmpty()) {
+            return result.map(VideoSummaryDto::from);
+        }
+
+        List<VideoReaction> reactions =
+                videoReactionRepository.findByVideoNoInAndUserNo(videoNos, userNo);
+
+        Map<Long, ReactionType> reactionMap = reactions.stream()
+                .collect(Collectors.toMap(
+                        VideoReaction::getVideoNo,
+                        VideoReaction::getReactionType
+                ));
+
+        return result.map(v -> {
+            VideoSummaryDto dto = VideoSummaryDto.from(v);
+            ReactionType rt = reactionMap.get(v.getVideoNo());
+            if (rt != null) {
+                dto.setMyReaction(rt.name()); // "LIKE" / "DISLIKE"
+            }
+            return dto;
+        });
+    }
+
+    // ✅ 좋아요/싫어요 토글
+    @Transactional
+    public VideoReactionResponse toggleReaction(String userId, Long videoNo, String action) {
+        User user = userRepository.findByUserId(userId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 사용자입니다: " + userId));
+
+        Video video = videoRepository.findById(videoNo)
+                .orElseThrow(() -> new IllegalArgumentException("영상이 존재하지 않습니다: " + videoNo));
+
+        ReactionType target;
+        if ("LIKE".equalsIgnoreCase(action)) {
+            target = ReactionType.LIKE;
+        } else if ("DISLIKE".equalsIgnoreCase(action)) {
+            target = ReactionType.DISLIKE;
+        } else {
+            throw new IllegalArgumentException("지원하지 않는 action 입니다: " + action);
+        }
+
+        Long userNo = user.getUserNo();
+
+        // 현재 내 반응 조회
+        VideoReaction current = videoReactionRepository
+                .findByVideoNoAndUserNo(videoNo, userNo)
+                .orElse(null);
+
+        String myReactionStr;
+
+        if (current != null && current.getReactionType() == target) {
+            // 같은 버튼 한 번 더 누름 → 취소 (행 삭제)
+            videoReactionRepository.delete(current);
+            myReactionStr = null;
+        } else {
+            // 없거나, 반대 반응 → target 으로 세팅
+            if (current == null) {
+                current = VideoReaction.builder()
+                        .videoNo(videoNo)
+                        .userNo(userNo)
+                        .build();
+            }
+            current.setReactionType(target);
+            videoReactionRepository.save(current);
+            myReactionStr = target.name();   // "LIKE" or "DISLIKE"
+        }
+
+        // 최신 좋아요/싫어요 카운트 계산
+        long likeCount = videoReactionRepository.countByVideoNoAndReactionType(videoNo, ReactionType.LIKE);
+        long dislikeCount = videoReactionRepository.countByVideoNoAndReactionType(videoNo, ReactionType.DISLIKE);
+
+        // VIDEO_TABLE에도 반영 (목록 조회에서 사용)
+        video.setLikeCount(likeCount);
+        video.setDislikeCount(dislikeCount);
+
+        return VideoReactionResponse.builder()
+                .likeCount(likeCount)
+                .dislikeCount(dislikeCount)
+                .myReaction(myReactionStr)
+                .build();
     }
 }

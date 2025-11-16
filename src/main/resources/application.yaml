@@ -20,3 +20,8 @@ spring:
 jwt:
   secret: "change-this-secret-to-at-least-32chars-long-123456"
   expiration-ms: 86400000
+
+openai:
+  api-key: ${OPENAI_API_KEY}         # 환경변수 OPENAI_API_KEY 로 주입
+  base-url: https://api.openai.com/v1
+  vision-model: gpt-4.1-mini
