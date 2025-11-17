@@ -52,3 +52,6 @@ openai:
 app:
   video:
     storage-dir: ${VIDEO_STORAGE_DIR:./videos-storage}
+  mail:
+    from: no-reply@aicollector.co.kr
+    from-name: AI Collector

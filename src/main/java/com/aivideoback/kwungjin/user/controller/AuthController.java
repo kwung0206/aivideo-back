@@ -5,6 +5,7 @@ import com.aivideoback.kwungjin.user.entity.User;
 import com.aivideoback.kwungjin.user.repository.UserRepository;
 import com.aivideoback.kwungjin.user.service.AuthService;
 import com.aivideoback.kwungjin.user.service.UserService;
+import com.aivideoback.kwungjin.user.service.EmailVerificationService;   // ⭐ 추가
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,7 @@ public class AuthController {
     private final UserService userService;
     private final AuthService authService;
     private final UserRepository userRepository;
+    private final EmailVerificationService emailVerificationService;   // ⭐ 추가
 
     @PostMapping("/register")
     public ResponseEntity<UserResponse> register(
@@ -51,6 +53,7 @@ public class AuthController {
 
         return ResponseEntity.ok(UserResponse.from(user));
     }
+
     @GetMapping("/check-userid")
     public ResponseEntity<DuplicateCheckResponse> checkUserId(
             @RequestParam String userId
@@ -75,8 +78,30 @@ public class AuthController {
         return ResponseEntity.ok(DuplicateCheckResponse.of(available, "이메일"));
     }
 
+    /** ⭐ 이메일 인증번호 발송 */
+    @PostMapping("/email/send-code")
+    public ResponseEntity<SimpleMessageResponse> sendEmailCode(
+            @Valid @RequestBody EmailCodeSendRequest request
+    ) {
+        // 이미 가입된 이메일이면 막고 싶으면 여기서 체크
+        if (!userService.isEmailAvailable(request.getEmail())) {
+            throw new IllegalArgumentException("이미 사용 중인 이메일입니다.");
+        }
+
+        emailVerificationService.sendVerificationCode(request.getEmail());
+        return ResponseEntity.ok(SimpleMessageResponse.of("인증번호를 전송했습니다. 이메일을 확인해 주세요."));
+    }
+
+    /** ⭐ 이메일 인증번호 검증 */
+    @PostMapping("/email/verify-code")
+    public ResponseEntity<SimpleMessageResponse> verifyEmailCode(
+            @Valid @RequestBody EmailCodeVerifyRequest request
+    ) {
+        emailVerificationService.verifyCode(request.getEmail(), request.getCode());
+        return ResponseEntity.ok(SimpleMessageResponse.of("이메일 인증이 완료되었습니다."));
+    }
+
     /** 닉네임 변경 (프론트: PATCH /api/auth/nickname) */
-    // 닉네임 변경 (JWT 필요)
     @PatchMapping("/nickname")
     public ResponseEntity<UserResponse> updateNickname(
             @AuthenticationPrincipal UserDetails principal,

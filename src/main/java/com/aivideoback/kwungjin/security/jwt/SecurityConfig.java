@@ -59,7 +59,9 @@ public class SecurityConfig {
                                 "/api/auth/login",
                                 "/api/auth/check-userid",
                                 "/api/auth/check-nickname",
-                                "/api/auth/check-email"
+                                "/api/auth/check-email",
+                                "/api/auth/email/send-code",   // ⭐ 추가
+                                "/api/auth/email/verify-code"
                         ).permitAll()
 
                         // ✅ 그 외 나머지는 인증 필요

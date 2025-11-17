@@ -48,6 +48,9 @@ dependencies {
 	implementation 'com.google.cloud:google-cloud-storage:2.40.0'
 
 	implementation 'org.hibernate.orm:hibernate-community-dialects'
+
+
+	implementation 'org.springframework.boot:spring-boot-starter-mail'
 }
 
 tasks.named('test') {
