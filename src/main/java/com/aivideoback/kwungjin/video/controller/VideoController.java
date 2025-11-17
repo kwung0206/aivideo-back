@@ -54,7 +54,7 @@ public class VideoController {
         return videoService.getMyVideosByUserId(userId);
     }
 
-    @@GetMapping("/public")
+    @GetMapping("/public")
     public ResponseEntity<Page<VideoSummaryDto>> getPublicVideos(
             @AuthenticationPrincipal(errorOnInvalidType = false) UserDetails userDetails,
             @RequestParam(defaultValue = "0") int page,
