@@ -45,13 +45,14 @@ public class SecurityConfig {
                         .requestMatchers("/api/admin/login").permitAll()
 
                         // ✅ 관리자 API는 ADMIN 권한 필요
-                        // hasRole("ADMIN") → 실제로는 "ROLE_ADMIN" 권한을 찾음
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
 
-                        // ✅ 공개 비디오 스트리밍/목록/홈 요약
-                        .requestMatchers(HttpMethod.GET, "/api/videos/*/stream").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/videos/public").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/videos/home-summary").permitAll() // 🔹 추가
+                        // ✅ 🔥 비로그인도 볼 수 있는 "영상 조회" 관련 GET 전부 허용
+                        .requestMatchers(HttpMethod.GET, "/api/videos/**").permitAll()
+                        // (아래 세 줄은 위 한 줄에 포함되지만, 있어도 상관 없음)
+                        // .requestMatchers(HttpMethod.GET, "/api/videos/*/stream").permitAll()
+                        // .requestMatchers(HttpMethod.GET, "/api/videos/public").permitAll()
+                        // .requestMatchers(HttpMethod.GET, "/api/videos/home-summary").permitAll()
 
                         // ✅ 회원가입/로그인 관련 공개 API
                         .requestMatchers(
@@ -60,7 +61,7 @@ public class SecurityConfig {
                                 "/api/auth/check-userid",
                                 "/api/auth/check-nickname",
                                 "/api/auth/check-email",
-                                "/api/auth/email/send-code",   // ⭐ 추가
+                                "/api/auth/email/send-code",
                                 "/api/auth/email/verify-code"
                         ).permitAll()
 
@@ -76,7 +77,6 @@ public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        // BCrypt (예: $2a$12$... )
         return new BCryptPasswordEncoder();
     }
 
@@ -94,7 +94,8 @@ public class SecurityConfig {
         config.setAllowedOrigins(List.of(
                 "http://localhost:5173",
                 "http://localhost:3000",
-                "https://aicollector.co.kr"   // 🔹 운영 도메인 추가
+                "https://aicollector.co.kr",
+                "https://www.aicollector.co.kr"
         ));
         config.setAllowedMethods(List.of(
                 "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"
