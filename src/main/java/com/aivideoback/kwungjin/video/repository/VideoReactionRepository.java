@@ -15,6 +15,5 @@ public interface VideoReactionRepository extends JpaRepository<VideoReaction, Lo
     long countByVideoNoAndReactionType(Long videoNo, ReactionType reactionType);
 
     void deleteByVideoNo(Long videoNo);
-
     List<VideoReaction> findByVideoNoInAndUserNo(List<Long> videoNos, Long userNo);
 }

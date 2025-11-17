@@ -1,6 +1,7 @@
 // src/main/java/com/aivideoback/kwungjin/admin/service/AdminManageService.java
 package com.aivideoback.kwungjin.admin.service;
 
+import com.aivideoback.kwungjin.video.repository.*;
 import com.aivideoback.kwungjin.admin.dto.AdminUserSummaryDto;
 import com.aivideoback.kwungjin.admin.dto.BlockedVideoDto;
 import com.aivideoback.kwungjin.user.entity.User;
@@ -22,7 +23,8 @@ public class AdminManageService {
 
     private final UserRepository userRepository;
     private final VideoRepository videoRepository;
-
+    private final VideoFeatureRepository videoFeatureRepository;
+    private final VideoReactionRepository videoReactionRepository;
     // "2025-11-16T15:32:10" 이런 형태
     private static final DateTimeFormatter ISO_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
@@ -74,10 +76,16 @@ public class AdminManageService {
     /** 영상 삭제 */
     @Transactional
     public void deleteVideo(Long videoNo) {
-        if (!videoRepository.existsById(videoNo)) {
-            throw new IllegalArgumentException("영상이 존재하지 않습니다. videoNo=" + videoNo);
-        }
-        videoRepository.deleteById(videoNo);
+        Video video = videoRepository.findById(videoNo)
+                .orElseThrow(() -> new IllegalArgumentException("영상이 존재하지 않습니다. videoNo=" + videoNo));
+
+        // 1️⃣ 자식 테이블 데이터 먼저 삭제
+        videoFeatureRepository.deleteByVideoNo(videoNo);
+        videoReactionRepository.deleteByVideoNo(videoNo);
+        // 나중에 댓글/기타 연관 테이블 생기면 여기서 같이 지우면 됨
+
+        // 2️⃣ 마지막으로 VIDEO 삭제
+        videoRepository.delete(video);
     }
 
     /** User → AdminUserSummaryDto 변환 */
