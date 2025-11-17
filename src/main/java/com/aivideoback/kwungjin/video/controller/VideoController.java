@@ -1,6 +1,9 @@
 // src/main/java/com/aivideoback/kwungjin/video/controller/VideoController.java
 package com.aivideoback.kwungjin.video.controller;
 
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
+
 import com.aivideoback.kwungjin.video.dto.VideoResponse;
 import com.aivideoback.kwungjin.video.dto.VideoSummaryDto;
 import com.aivideoback.kwungjin.video.dto.VideoUpdateRequest;
@@ -51,14 +54,18 @@ public class VideoController {
         return videoService.getMyVideosByUserId(userId);
     }
 
-    @GetMapping("/public")
+    @@GetMapping("/public")
     public ResponseEntity<Page<VideoSummaryDto>> getPublicVideos(
-            @AuthenticationPrincipal(expression = "username") String userId,
+            @AuthenticationPrincipal(errorOnInvalidType = false) UserDetails userDetails,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "36") int size,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String tags
     ) {
+        // ✅ 로그인 O: userDetails != null → username 사용
+        // ✅ 로그인 X: userDetails == null → guest 로 처리
+        String userId = (userDetails != null ? userDetails.getUsername() : null);
+
         List<String> tagList = Collections.emptyList();
         if (tags != null && !tags.isBlank()) {
             tagList = Arrays.stream(tags.split(","))

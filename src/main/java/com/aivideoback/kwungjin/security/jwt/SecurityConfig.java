@@ -48,11 +48,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
 
                         // ✅ 🔥 비로그인도 볼 수 있는 "영상 조회" 관련 GET 전부 허용
-                        .requestMatchers(HttpMethod.GET, "/api/videos/**").permitAll()
-                        // (아래 세 줄은 위 한 줄에 포함되지만, 있어도 상관 없음)
-                        // .requestMatchers(HttpMethod.GET, "/api/videos/*/stream").permitAll()
-                        // .requestMatchers(HttpMethod.GET, "/api/videos/public").permitAll()
-                        // .requestMatchers(HttpMethod.GET, "/api/videos/home-summary").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/videos/*/stream").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/videos/public").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/videos/home-summary").permitAll()
 
                         // ✅ 회원가입/로그인 관련 공개 API
                         .requestMatchers(
