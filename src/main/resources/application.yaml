@@ -5,7 +5,10 @@ server:
 spring:
   application:
     name: aicollector-back
-
+  servlet:
+    multipart:
+      max-file-size: 500MB      # 업로드 1개 파일 최대 용량
+      max-request-size: 500MB
   datasource:
     driver-class-name: oracle.jdbc.OracleDriver
     # 환경변수로 덮어쓸 수 있게 하고, 기본값은 10.10.10.3:1521:xe
