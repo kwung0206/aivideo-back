@@ -1,3 +1,4 @@
+// src/main/java/com/aivideoback/kwungjin/user/entity/EmailVerification.java
 package com.aivideoback.kwungjin.user.entity;
 
 import jakarta.persistence.*;
@@ -21,37 +22,24 @@ public class EmailVerification {
             allocationSize = 1
     )
     @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "EMAIL_VERIFICATION_SEQ_GENERATOR")
-    @Column(name = "EV_ID")
+    @Column(name = "VERIFICATION_NO")
     private Long id;
 
     @Column(name = "EMAIL", nullable = false, length = 255)
     private String email;
 
-    @Column(name = "CODE", nullable = false, length = 20)
-    private String code;
+    @Column(name = "CODE_HASH", nullable = false, length = 200)
+    private String codeHash;
 
-    @Column(name = "EXPIRES_AT", nullable = false)
-    private LocalDateTime expiresAt;
-
-    @Column(name = "VERIFIED", nullable = false, length = 1)
-    private String verified; // 'Y' or 'N'
+    @Column(name = "ATTEMPTS", nullable = false)
+    private Integer attempts;
 
     @Column(name = "CREATED_AT", nullable = false)
     private LocalDateTime createdAt;
 
-    @PrePersist
-    public void prePersist() {
-        this.createdAt = LocalDateTime.now();
-        if (this.verified == null) {
-            this.verified = "N";
-        }
-    }
+    @Column(name = "EXPIRES_AT", nullable = false)
+    private LocalDateTime expiresAt;
 
-    public boolean isExpired() {
-        return expiresAt.isBefore(LocalDateTime.now());
-    }
-
-    public boolean isVerifiedFlag() {
-        return "Y".equalsIgnoreCase(verified);
-    }
+    @Column(name = "VERIFIED_AT")
+    private LocalDateTime verifiedAt;
 }

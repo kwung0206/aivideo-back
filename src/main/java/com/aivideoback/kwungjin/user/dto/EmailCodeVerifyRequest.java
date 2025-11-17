@@ -1,3 +1,4 @@
+// src/main/java/com/aivideoback/kwungjin/user/dto/EmailCodeVerifyRequest.java
 package com.aivideoback.kwungjin.user.dto;
 
 import jakarta.validation.constraints.Email;

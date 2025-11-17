@@ -83,7 +83,6 @@ public class AuthController {
     public ResponseEntity<SimpleMessageResponse> sendEmailCode(
             @Valid @RequestBody EmailCodeSendRequest request
     ) {
-        // 이미 가입된 이메일이면 막고 싶으면 여기서 체크
         if (!userService.isEmailAvailable(request.getEmail())) {
             throw new IllegalArgumentException("이미 사용 중인 이메일입니다.");
         }
@@ -92,7 +91,7 @@ public class AuthController {
         return ResponseEntity.ok(SimpleMessageResponse.of("인증번호를 전송했습니다. 이메일을 확인해 주세요."));
     }
 
-    /** ⭐ 이메일 인증번호 검증 */
+    /** 이메일 인증번호 검증 */
     @PostMapping("/email/verify-code")
     public ResponseEntity<SimpleMessageResponse> verifyEmailCode(
             @Valid @RequestBody EmailCodeVerifyRequest request

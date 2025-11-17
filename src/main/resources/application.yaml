@@ -49,9 +49,10 @@ openai:
   base-url: https://api.openai.com/v1
   vision-model: gpt-4.1-mini
 
+
 app:
+  mail:
+    from: ${APP_MAIL_FROM:no-reply@aicollector.co.kr}
+    from-name: ${APP_MAIL_FROM_NAME:AI 콜렉터}
   video:
     storage-dir: ${VIDEO_STORAGE_DIR:./videos-storage}
-  mail:
-    from: no-reply@aicollector.co.kr
-    from-name: AI Collector

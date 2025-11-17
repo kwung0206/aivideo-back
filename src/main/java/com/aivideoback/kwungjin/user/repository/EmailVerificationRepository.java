@@ -1,3 +1,4 @@
+// src/main/java/com/aivideoback/kwungjin/user/repository/EmailVerificationRepository.java
 package com.aivideoback.kwungjin.user.repository;
 
 import com.aivideoback.kwungjin.user.entity.EmailVerification;
@@ -7,7 +8,5 @@ import java.util.Optional;
 
 public interface EmailVerificationRepository extends JpaRepository<EmailVerification, Long> {
 
-    Optional<EmailVerification> findTopByEmailOrderByCreatedAtDesc(String email);
-
-    void deleteByEmail(String email);
+    Optional<EmailVerification> findTopByEmailIgnoreCaseOrderByCreatedAtDesc(String email);
 }

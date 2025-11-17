@@ -18,9 +18,13 @@ public class UserService {
     private static final Set<String> ALLOWED_PROFILE_IMAGES = Set.of(
             "blue", "purple", "orange", "green", "pink", "mono"
     );
+    private final EmailVerificationService emailVerificationService;
     @Transactional
     public UserResponse register(RegisterRequest request) {
 
+        if (!emailVerificationService.isRecentlyVerified(request.getEmail())) {
+            throw new IllegalArgumentException("이메일 인증이 완료되지 않았습니다. 먼저 이메일 인증을 진행해 주세요.");
+        }
         if (userRepository.existsByUserId(request.getUserId())) {
             throw new IllegalArgumentException("이미 사용 중인 아이디입니다.");
         }
