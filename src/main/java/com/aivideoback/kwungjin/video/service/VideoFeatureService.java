@@ -1,6 +1,9 @@
 // src/main/java/com/aivideoback/kwungjin/video/service/VideoFeatureService.java
 package com.aivideoback.kwungjin.video.service;
 
+import com.aivideoback.kwungjin.video.dto.VideoAutoTagRequest;
+import com.aivideoback.kwungjin.video.dto.VideoAutoTagRequest.TagScore;
+import com.aivideoback.kwungjin.video.entity.Video;
 import com.aivideoback.kwungjin.ai.ImageTagService;
 import com.aivideoback.kwungjin.video.entity.Video;
 import com.aivideoback.kwungjin.video.entity.VideoFeature;
@@ -14,6 +17,8 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -114,6 +119,49 @@ public class VideoFeatureService {
 
         } catch (Exception e) {
             log.error("영상 특징 저장 중 예외 발생 videoNo={}", videoNo, e);
+        }
+    }
+
+    @Transactional
+    public void saveAutoTagsFromDesktop(VideoAutoTagRequest req) {
+        Long videoNo = req.getVideoNo();
+        if (videoNo == null) {
+            throw new IllegalArgumentException("videoNo는 필수입니다.");
+        }
+
+        // 영상 존재 여부 체크
+        videoRepository.findById(videoNo)
+                .orElseThrow(() -> new IllegalArgumentException("영상이 존재하지 않습니다: " + videoNo));
+
+        try {
+            // 그대로 JSON으로 박아서 저장 (나중에 꺼내 쓰기 편하게)
+            Map<String, Object> jsonMap = new HashMap<>();
+            jsonMap.put("mainTag", req.getMainTag());
+            jsonMap.put("subTags", req.getSubTags());
+            jsonMap.put("presentTags", req.getPresentTags());
+            jsonMap.put("allScores", req.getAllScores());
+            jsonMap.put("frameCount", req.getFrameCount());
+
+            String tagsJson = objectMapper.writeValueAsString(jsonMap);
+
+            // 동일 source("DESKTOP_ML")의 기존 기록만 제거
+            videoFeatureRepository.deleteByVideoNoAndSource(videoNo, "DESKTOP_ML");
+
+            VideoFeature feature = VideoFeature.builder()
+                    .videoNo(videoNo)
+                    .source("DESKTOP_ML")   // 구분용
+                    .frameTime(null)
+                    .tagsJson(tagsJson)
+                    .build();
+
+            videoFeatureRepository.save(feature);
+
+            String mainName = (req.getMainTag() != null ? req.getMainTag().getName() : null);
+            log.info("데스크탑 ML 태그 저장 완료 videoNo={} mainTag={}", videoNo, mainName);
+
+        } catch (Exception e) {
+            log.error("데스크탑 ML 태그 저장 중 예외 videoNo={}", videoNo, e);
+            throw new IllegalArgumentException("데스크탑 자동 태그 저장 실패");
         }
     }
 }

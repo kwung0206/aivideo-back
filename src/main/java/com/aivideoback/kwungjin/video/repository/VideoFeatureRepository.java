@@ -12,4 +12,6 @@ public interface VideoFeatureRepository extends JpaRepository<VideoFeature, Long
 
     void deleteByVideoNo(Long videoNo);
 
+    void deleteByVideoNoAndSource(Long videoNo, String source);
+
 }
