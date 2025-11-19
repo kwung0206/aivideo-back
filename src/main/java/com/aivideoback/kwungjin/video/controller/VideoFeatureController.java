@@ -1,3 +1,4 @@
+// src/main/java/com/aivideoback/kwungjin/video/controller/VideoFeatureController.java
 package com.aivideoback.kwungjin.video.controller;
 
 import com.aivideoback.kwungjin.video.dto.VideoAutoTagRequest;
