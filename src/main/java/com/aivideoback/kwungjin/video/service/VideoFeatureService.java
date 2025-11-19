@@ -2,6 +2,7 @@
 package com.aivideoback.kwungjin.video.service;
 
 import com.aivideoback.kwungjin.ai.ImageTagService;
+import com.aivideoback.kwungjin.video.dto.DesktopTagTargetDto;
 import com.aivideoback.kwungjin.video.dto.VideoAutoTagRequest;
 import com.aivideoback.kwungjin.video.entity.Video;
 import com.aivideoback.kwungjin.video.entity.VideoFeature;
@@ -294,5 +295,35 @@ public class VideoFeatureService {
         video.setTag5(limited.size() > 4 ? limited.get(4) : null);
 
         log.info("영상 {} TAG1~TAG5 를 {} 태그로 기본 세팅: {}", video.getVideoNo(), sourceLabel, limited);
+    }
+
+    @Transactional(readOnly = true)
+    public List<DesktopTagTargetDto> getPendingVideosForDesktop(int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 50)); // 1~50 사이로 제한
+
+        // 최근 생성된 공개(A, N) 영상 최대 200개 후보
+        List<Video> candidates =
+                videoRepository.findTop200ByIsBlockedAndReviewStatusOrderByCreatedAtDesc("N", "A");
+
+        List<DesktopTagTargetDto> result = new ArrayList<>();
+
+        for (Video v : candidates) {
+            // 이미 DESKTOP_ML 태그가 있는 영상은 건너뛰기
+            if (!videoFeatureRepository.existsByVideoNoAndSource(v.getVideoNo(), "DESKTOP_ML")) {
+                result.add(
+                        DesktopTagTargetDto.builder()
+                                .videoNo(v.getVideoNo())
+                                .title(v.getTitle())
+                                .createdAt(v.getCreatedAt())
+                                .uploadDate(v.getUploadDate())
+                                .build()
+                );
+                if (result.size() >= safeLimit) {
+                    break;
+                }
+            }
+        }
+
+        return result;
     }
 }
