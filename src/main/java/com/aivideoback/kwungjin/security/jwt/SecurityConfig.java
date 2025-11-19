@@ -60,7 +60,9 @@ public class SecurityConfig {
                                 "/api/auth/check-nickname",
                                 "/api/auth/check-email",
                                 "/api/auth/email/send-code",
-                                "/api/auth/email/verify-code"
+                                "/api/auth/email/verify-code",
+                                "/api/videos/features/auto-tags",
+                                "/api/videos/features/pending-desktop"
                         ).permitAll()
                         .requestMatchers("/api/videos/features/auto-tags").permitAll()
                         // ✅ 그 외 나머지는 인증 필요
