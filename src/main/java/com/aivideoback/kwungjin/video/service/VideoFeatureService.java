@@ -3,7 +3,6 @@ package com.aivideoback.kwungjin.video.service;
 
 import com.aivideoback.kwungjin.ai.ImageTagService;
 import com.aivideoback.kwungjin.video.dto.VideoAutoTagRequest;
-import com.aivideoback.kwungjin.video.dto.VideoAutoTagRequest.TagScore;
 import com.aivideoback.kwungjin.video.entity.Video;
 import com.aivideoback.kwungjin.video.entity.VideoFeature;
 import com.aivideoback.kwungjin.video.repository.VideoFeatureRepository;
@@ -103,7 +102,7 @@ public class VideoFeatureService {
         try {
             String tagsJson = objectMapper.writeValueAsString(Map.of("tags", tags));
 
-            // 🔥 이제는 GPT_IMAGE 것만 지우고 다시 저장 (DESKTOP_ML 은 유지)
+            // GPT_IMAGE 것만 지우고 다시 저장 (DESKTOP_ML 은 유지)
             videoFeatureRepository.deleteByVideoNoAndSource(videoNo, "GPT_IMAGE");
 
             VideoFeature feature = VideoFeature.builder()
@@ -132,50 +131,13 @@ public class VideoFeatureService {
             throw new IllegalArgumentException("videoNo는 필수입니다.");
         }
 
+        // 1) 영상 조회 (존재 여부 + TAG1~TAG5 업데이트용)
         Video video = videoRepository.findById(videoNo)
                 .orElseThrow(() -> new IllegalArgumentException("영상이 존재하지 않습니다: " + videoNo));
 
-        // 1) mainTag + subTags 기반으로 상위 태그 리스트 구성
-        List<String> collected = new ArrayList<>();
-
-        TagScore main = req.getMainTag();
-        if (main != null && main.getName() != null) {
-            String name = main.getName().trim();
-            if (!name.isEmpty()) {
-                collected.add(name);
-            }
-        }
-
-        if (req.getSubTags() != null) {
-            for (TagScore t : req.getSubTags()) {
-                if (t == null || t.getName() == null) continue;
-                String name = t.getName().trim();
-                if (name.isEmpty()) continue;
-                collected.add(name);
-            }
-        }
-
-        // 2) 중복 제거 + 최대 5개까지만 사용
-        List<String> distinctTags = collected.stream()
-                .filter(Objects::nonNull)
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .distinct()
-                .limit(5)
-                .toList();
-
-        // 3) VIDEO_TABLE 의 TAG1~TAG5 업데이트
-        video.setTag1(distinctTags.size() > 0 ? distinctTags.get(0) : null);
-        video.setTag2(distinctTags.size() > 1 ? distinctTags.get(1) : null);
-        video.setTag3(distinctTags.size() > 2 ? distinctTags.get(2) : null);
-        video.setTag4(distinctTags.size() > 3 ? distinctTags.get(3) : null);
-        video.setTag5(distinctTags.size() > 4 ? distinctTags.get(4) : null);
-
-        // JPA @Transactional 이라 별도 save() 안 해도 flush 될 것
-
-        // 4) VIDEO_FEATURE_TABLE 에도 전체 결과 JSON으로 기록 (SOURCE = DESKTOP_ML)
         try {
-            Map<String, Object> jsonMap = new LinkedHashMap<>();
+            // 2) VIDEO_FEATURE_TABLE 에 DESKTOP_ML 기록 저장 (기존 로직 유지)
+            Map<String, Object> jsonMap = new HashMap<>();
             jsonMap.put("mainTag", req.getMainTag());
             jsonMap.put("subTags", req.getSubTags());
             jsonMap.put("presentTags", req.getPresentTags());
@@ -184,7 +146,7 @@ public class VideoFeatureService {
 
             String tagsJson = objectMapper.writeValueAsString(jsonMap);
 
-            // DESKTOP_ML 것만 지우고 다시 저장
+            // 동일 source("DESKTOP_ML") 기록만 제거 후 새로 저장
             videoFeatureRepository.deleteByVideoNoAndSource(videoNo, "DESKTOP_ML");
 
             VideoFeature feature = VideoFeature.builder()
@@ -196,13 +158,93 @@ public class VideoFeatureService {
 
             videoFeatureRepository.save(feature);
 
-            String mainName = (main != null ? main.getName() : null);
-            log.info("데스크탑 ML 태그 저장 & VIDEO_TABLE 태그 업데이트 완료 videoNo={} mainTag={} tags={}",
-                    videoNo, mainName, distinctTags);
+            // 3) mainTag + subTags + presentTags + allScores 순으로 TAG1~TAG5 채우기
+            List<String> tagNames = new ArrayList<>();
+
+            // (1) mainTag
+            if (req.getMainTag() != null && req.getMainTag().getName() != null) {
+                String name = normalizeTagName(req.getMainTag().getName());
+                if (!name.isBlank()) {
+                    tagNames.add(name);
+                }
+            }
+
+            // (2) subTags
+            if (req.getSubTags() != null) {
+                for (VideoAutoTagRequest.TagScore ts : req.getSubTags()) {
+                    if (ts == null || ts.getName() == null) continue;
+                    String name = normalizeTagName(ts.getName());
+                    if (name.isBlank()) continue;
+                    if (!tagNames.contains(name)) {
+                        tagNames.add(name);
+                    }
+                    if (tagNames.size() >= 5) break;
+                }
+            }
+
+            // (3) presentTags (보조 – 중복 제거)
+            if (tagNames.size() < 5 && req.getPresentTags() != null) {
+                for (VideoAutoTagRequest.TagScore ts : req.getPresentTags()) {
+                    if (ts == null || ts.getName() == null) continue;
+                    String name = normalizeTagName(ts.getName());
+                    if (name.isBlank()) continue;
+                    if (!tagNames.contains(name)) {
+                        tagNames.add(name);
+                    }
+                    if (tagNames.size() >= 5) break;
+                }
+            }
+
+            // (4) allScores 상위에서 부족분 채우기
+            if (tagNames.size() < 5 && req.getAllScores() != null && !req.getAllScores().isEmpty()) {
+                List<Map.Entry<String, Double>> scoreList =
+                        new ArrayList<>(req.getAllScores().entrySet());
+
+                // 점수 기준 내림차순 정렬
+                scoreList.sort((e1, e2) -> {
+                    double v2 = (e2.getValue() != null ? e2.getValue() : 0.0);
+                    double v1 = (e1.getValue() != null ? e1.getValue() : 0.0);
+                    return Double.compare(v2, v1);
+                });
+
+                for (Map.Entry<String, Double> entry : scoreList) {
+                    if (tagNames.size() >= 5) break;
+
+                    String name = normalizeTagName(entry.getKey());
+                    if (name.isBlank()) continue;
+                    if (!tagNames.contains(name)) {
+                        tagNames.add(name);
+                    }
+                }
+            }
+
+            // 5개를 넘으면 잘라내기 (안전용)
+            if (tagNames.size() > 5) {
+                tagNames = new ArrayList<>(tagNames.subList(0, 5));
+            }
+
+            // 5) VIDEO_TABLE.TAG1~TAG5에 반영
+            video.setTag1(tagNames.size() > 0 ? tagNames.get(0) : null);
+            video.setTag2(tagNames.size() > 1 ? tagNames.get(1) : null);
+            video.setTag3(tagNames.size() > 2 ? tagNames.get(2) : null);
+            video.setTag4(tagNames.size() > 3 ? tagNames.get(3) : null);
+            video.setTag5(tagNames.size() > 4 ? tagNames.get(4) : null);
+
+            String mainName = (req.getMainTag() != null ? req.getMainTag().getName() : null);
+            log.info("데스크탑 ML 태그 저장 완료 videoNo={} mainTag={} tags={}",
+                    videoNo, mainName, tagNames);
 
         } catch (Exception e) {
             log.error("데스크탑 ML 태그 저장 중 예외 videoNo={}", videoNo, e);
             throw new IllegalArgumentException("데스크탑 자동 태그 저장 실패");
         }
+    }
+
+    /** 태그 이름 통일용 (소문자 정리 등 필요 시) */
+    private String normalizeTagName(String raw) {
+        if (raw == null) return "";
+        String name = raw.trim();
+        // 여기서 소문자로 통일 (모델이 "Game" / "GAME" 섞어서 줄 수도 있으니까)
+        return name.toLowerCase();
     }
 }
