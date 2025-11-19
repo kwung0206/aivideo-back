@@ -4,6 +4,7 @@ package com.aivideoback.kwungjin.video.service;
 import com.aivideoback.kwungjin.ai.ImageTagService;
 import com.aivideoback.kwungjin.video.dto.DesktopTagTargetDto;
 import com.aivideoback.kwungjin.video.dto.VideoAutoTagRequest;
+import com.aivideoback.kwungjin.video.dto.VideoAutoTagRequest.TagScore;
 import com.aivideoback.kwungjin.video.entity.Video;
 import com.aivideoback.kwungjin.video.entity.VideoFeature;
 import com.aivideoback.kwungjin.video.repository.VideoFeatureRepository;
@@ -29,7 +30,14 @@ import java.util.stream.Stream;
 @Slf4j
 public class VideoFeatureService {
 
+    /** GPT 이미지 태그를 기본값으로 넣을 때 사용할 최대 개수 (TAG1~TAG5) */
     private static final int MAX_TAGS = 5;
+
+    /** 데스크탑 ML 자동 태그는 TAG1~TAG3까지만 사용 */
+    private static final int MAX_AUTO_TAGS = 3;
+
+    /** 데스크탑 ML 태그로 인정할 최소 점수 (파이썬 PRESENT_THRESHOLD와 맞춤) */
+    private static final double MIN_SCORE_FOR_TAG = 0.40;
 
     private final VideoRepository videoRepository;
     private final VideoFeatureRepository videoFeatureRepository;
@@ -102,7 +110,7 @@ public class VideoFeatureService {
             return;
         }
 
-        // 태그 정규화 (소문자, 공백 제거, 중복 제거)
+        // 태그 정규화 (소문자, 공백 제거, 중복 제거) → 최대 MAX_TAGS개
         List<String> normalizedGptTags = gptTags.stream()
                 .filter(Objects::nonNull)
                 .map(this::normalizeTagName)
@@ -128,7 +136,7 @@ public class VideoFeatureService {
             videoFeatureRepository.save(feature);
             log.info("영상 특징(GPT_IMAGE) 저장 완료 videoNo={} tagsCount={}", videoNo, gptTags.size());
 
-            // 🔥 TAG1~TAG5 가 아직 비어 있다면 GPT 태그로 기본값 채워주기
+            // TAG1~TAG5가 전부 비어 있을 때만 GPT 태그로 기본값 채워주기
             applyTagsIfEmpty(video, normalizedGptTags, "GPT_IMAGE");
 
         } catch (Exception e) {
@@ -147,12 +155,12 @@ public class VideoFeatureService {
             throw new IllegalArgumentException("videoNo는 필수입니다.");
         }
 
-        // 1) 영상 조회 (존재 여부 + TAG1~TAG5 업데이트용)
+        // 1) 영상 조회 (존재 여부 + TAG 업데이트용)
         Video video = videoRepository.findById(videoNo)
                 .orElseThrow(() -> new IllegalArgumentException("영상이 존재하지 않습니다: " + videoNo));
 
         try {
-            // 2) VIDEO_FEATURE_TABLE 에 DESKTOP_ML 기록 저장 (기존 로직 유지)
+            // 2) VIDEO_FEATURE_TABLE 에 DESKTOP_ML 기록 저장 (로그용)
             Map<String, Object> jsonMap = new HashMap<>();
             jsonMap.put("mainTag", req.getMainTag());
             jsonMap.put("subTags", req.getSubTags());
@@ -162,7 +170,6 @@ public class VideoFeatureService {
 
             String tagsJson = objectMapper.writeValueAsString(jsonMap);
 
-            // 동일 source("DESKTOP_ML") 기록만 제거 후 새로 저장
             videoFeatureRepository.deleteByVideoNoAndSource(videoNo, "DESKTOP_ML");
 
             VideoFeature feature = VideoFeature.builder()
@@ -174,78 +181,71 @@ public class VideoFeatureService {
 
             videoFeatureRepository.save(feature);
 
-            // 3) mainTag + subTags + presentTags + allScores 순으로 TAG1~TAG5 채우기
+            // 3) TAG1~TAG3 결정 로직
             List<String> tagNames = new ArrayList<>();
 
-            // (1) mainTag
-            if (req.getMainTag() != null && req.getMainTag().getName() != null) {
-                String name = normalizeTagName(req.getMainTag().getName());
-                if (!name.isBlank()) {
-                    tagNames.add(name);
-                }
-            }
-
-            // (2) subTags
-            if (req.getSubTags() != null) {
-                for (VideoAutoTagRequest.TagScore ts : req.getSubTags()) {
+            // (1) presentTags 기준: 점수 내림차순 정렬 후, MIN_SCORE_FOR_TAG 이상만 최대 MAX_AUTO_TAGS개 선택
+            if (req.getPresentTags() != null && !req.getPresentTags().isEmpty()) {
+                List<TagScore> candidates = new ArrayList<>();
+                for (TagScore ts : req.getPresentTags()) {
                     if (ts == null || ts.getName() == null) continue;
+                    candidates.add(ts);
+                }
+
+                candidates.sort((a, b) -> {
+                    double sb = (b.getScore() != null) ? b.getScore() : 0.0;
+                    double sa = (a.getScore() != null) ? a.getScore() : 0.0;
+                    return Double.compare(sb, sa); // 내림차순
+                });
+
+                for (TagScore ts : candidates) {
+                    if (tagNames.size() >= MAX_AUTO_TAGS) break;
+
+                    double score = (ts.getScore() != null) ? ts.getScore() : 0.0;
+                    if (score < MIN_SCORE_FOR_TAG) continue;
+
                     String name = normalizeTagName(ts.getName());
                     if (name.isBlank()) continue;
                     if (!tagNames.contains(name)) {
                         tagNames.add(name);
                     }
-                    if (tagNames.size() >= MAX_TAGS) break;
                 }
             }
 
-            // (3) presentTags (보조 – 중복 제거)
-            if (tagNames.size() < MAX_TAGS && req.getPresentTags() != null) {
-                for (VideoAutoTagRequest.TagScore ts : req.getPresentTags()) {
-                    if (ts == null || ts.getName() == null) continue;
-                    String name = normalizeTagName(ts.getName());
-                    if (name.isBlank()) continue;
-                    if (!tagNames.contains(name)) {
+            // (2) presentTags에서 아무 것도 못 골랐으면 mainTag + subTags로 대체 (역시 최대 MAX_AUTO_TAGS개)
+            if (tagNames.isEmpty()) {
+                TagScore main = req.getMainTag();
+                if (main != null && main.getName() != null) {
+                    String name = normalizeTagName(main.getName());
+                    if (!name.isBlank()) {
                         tagNames.add(name);
                     }
-                    if (tagNames.size() >= MAX_TAGS) break;
                 }
-            }
 
-            // (4) allScores 상위에서 부족분 채우기
-            if (tagNames.size() < MAX_TAGS && req.getAllScores() != null && !req.getAllScores().isEmpty()) {
-                List<Map.Entry<String, Double>> sortedEntries = req.getAllScores().entrySet()
-                        .stream()
-                        .sorted((e1, e2) -> {
-                            double v2 = (e2.getValue() != null ? e2.getValue() : 0.0);
-                            double v1 = (e1.getValue() != null ? e1.getValue() : 0.0);
-                            return Double.compare(v2, v1); // 내림차순
-                        })
-                        .toList();
+                if (req.getSubTags() != null) {
+                    for (TagScore ts : req.getSubTags()) {
+                        if (tagNames.size() >= MAX_AUTO_TAGS) break;
+                        if (ts == null || ts.getName() == null) continue;
 
-                for (Map.Entry<String, Double> entry : sortedEntries) {
-                    if (tagNames.size() >= MAX_TAGS) break;
-                    String name = normalizeTagName(entry.getKey());
-                    if (name.isBlank()) continue;
-                    if (!tagNames.contains(name)) {
-                        tagNames.add(name);
+                        String name = normalizeTagName(ts.getName());
+                        if (name.isBlank()) continue;
+                        if (!tagNames.contains(name)) {
+                            tagNames.add(name);
+                        }
                     }
                 }
             }
 
-            // 5개를 넘으면 자르기
-            List<String> limitedTags =
-                    (tagNames.size() > MAX_TAGS) ? tagNames.subList(0, MAX_TAGS) : tagNames;
-
-            // 5) VIDEO_TABLE.TAG1~TAG5에 반영 (DESKTOP_ML 은 GPT_IMAGE 보다 우선순위 높게 항상 덮어씀)
-            video.setTag1(limitedTags.size() > 0 ? limitedTags.get(0) : null);
-            video.setTag2(limitedTags.size() > 1 ? limitedTags.get(1) : null);
-            video.setTag3(limitedTags.size() > 2 ? limitedTags.get(2) : null);
-            video.setTag4(limitedTags.size() > 3 ? limitedTags.get(3) : null);
-            video.setTag5(limitedTags.size() > 4 ? limitedTags.get(4) : null);
+            // (3) VIDEO_TABLE.TAG1~TAG3에만 반영 / TAG4~TAG5는 비워둠
+            video.setTag1(tagNames.size() > 0 ? tagNames.get(0) : null);
+            video.setTag2(tagNames.size() > 1 ? tagNames.get(1) : null);
+            video.setTag3(tagNames.size() > 2 ? tagNames.get(2) : null);
+            video.setTag4(null);
+            video.setTag5(null);
 
             String mainName = (req.getMainTag() != null ? req.getMainTag().getName() : null);
             log.info("데스크탑 ML 태그 저장 완료 videoNo={} mainTag={} tags={}",
-                    videoNo, mainName, limitedTags);
+                    videoNo, mainName, tagNames);
 
         } catch (Exception e) {
             log.error("데스크탑 ML 태그 저장 중 예외 videoNo={}", videoNo, e);
@@ -281,7 +281,8 @@ public class VideoFeatureService {
                 .anyMatch(t -> t != null && !t.isBlank());
 
         if (hasAnyTag) {
-            log.debug("영상 {} 은 이미 TAG1~TAG5 가 존재하므로 {} 태그로는 덮어쓰지 않음", video.getVideoNo(), sourceLabel);
+            log.debug("영상 {} 은 이미 TAG1~TAG5 가 존재하므로 {} 태그로는 덮어쓰지 않음",
+                    video.getVideoNo(), sourceLabel);
             return;
         }
 
@@ -294,9 +295,13 @@ public class VideoFeatureService {
         video.setTag4(limited.size() > 3 ? limited.get(3) : null);
         video.setTag5(limited.size() > 4 ? limited.get(4) : null);
 
-        log.info("영상 {} TAG1~TAG5 를 {} 태그로 기본 세팅: {}", video.getVideoNo(), sourceLabel, limited);
+        log.info("영상 {} TAG1~TAG5 를 {} 태그로 기본 세팅: {}",
+                video.getVideoNo(), sourceLabel, limited);
     }
 
+    /**
+     * 데스크탑 ML 데몬이 가져갈 "아직 DESKTOP_ML 태그가 없는 승인된 영상" 목록 조회
+     */
     @Transactional(readOnly = true)
     public List<DesktopTagTargetDto> getPendingVideosForDesktop(int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 50)); // 1~50 사이로 제한
