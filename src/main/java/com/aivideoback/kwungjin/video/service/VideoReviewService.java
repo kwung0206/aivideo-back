@@ -23,13 +23,9 @@ import java.util.concurrent.TimeUnit;
 public class VideoReviewService {
 
     private final VideoRepository videoRepository;
-    private final VideoFeatureService videoFeatureService;
+    // ✅ 이제 여기서는 태그 추출을 안 할 거라면 주석 처리 / 삭제
+    // private final VideoFeatureService videoFeatureService;
 
-    /**
-     * 업로드 직후 비동기로 호출되는 자동 심사 메서드.
-     * 파일은 DB가 아니라 filePath 에 저장되어 있으므로
-     * 여기서 직접 읽어온다.
-     */
     @Async
     @Transactional
     public void reviewVideoAsync(Long videoNo) {
@@ -47,6 +43,7 @@ public class VideoReviewService {
             log.error("영상 파일 읽기 실패, 심사 불가 videoNo={}", videoNo, e);
             video.setReviewStatus("H");
             video.setIsBlocked("Y");
+            videoRepository.save(video);   // ✅ 명시적으로 저장
             return;
         }
 
@@ -89,12 +86,21 @@ public class VideoReviewService {
             video.setReviewStatus("A");
             video.setIsBlocked("N");
             log.info("영상 자동 심사 결과: 승인(A) videoNo={}", videoNo);
+        }
 
+        // ✅ 무조건 저장해서 DB에 반영
+        videoRepository.save(video);
+
+        // ❌ 이제 여기선 태그 추출 안 함 (Ollama 데스크탑 워커가 맡음)
+        /*
+        if (!harmful) {
             try {
                 videoFeatureService.extractAndSaveFeatures(videoNo);
             } catch (Exception e) {
                 log.warn("영상 특징 추출 스케줄링 실패 videoNo={}", videoNo, e);
             }
         }
+        */
     }
 }
+
